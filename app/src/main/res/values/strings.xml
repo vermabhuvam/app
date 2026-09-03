@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Gully Rewind</string>
+    <string name="tagline">90s Bollywood, always playing</string>
+    <string name="listening_now">%1$d listening now</string>
+    <string name="view_playlists">Playlists</string>
+    <string name="view_all_songs">All Songs</string>
+    <string name="join_whatsapp">Join on WhatsApp</string>
+    <string name="open_spotify">Spotify</string>
+    <string name="open_yt_music">YT Music</string>
+    <string name="now_playing">Now Playing</string>
+    <string name="play">Play</string>
+    <string name="pause">Pause</string>
+    <string name="next">Next</string>
+    <string name="previous">Previous</string>
+    <string name="playlists_title">Playlists</string>
+    <string name="all_songs_title">All Songs</string>
+    <string name="audio_credit">Audio streams live through YouTube\'s player. Nothing is hosted here — all rights stay with the labels, composers and performers.</string>
+</resources>

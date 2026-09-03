@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_rounded_card"
+    android:layout_marginBottom="12dp"
+    android:padding="18dp">
+
+    <TextView
+        android:id="@+id/tvItemPlaylistTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_primary"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        tools:text="Gully Ki Mohabbat"/>
+
+    <TextView
+        android:id="@+id/tvItemPlaylistTagline"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp"
+        tools:text="90s love songs for a slow evening"/>
+
+</LinearLayout>
