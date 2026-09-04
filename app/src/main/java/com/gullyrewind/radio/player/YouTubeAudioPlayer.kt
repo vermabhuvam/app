@@ -8,19 +8,18 @@ import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.WebViewClient
 
 /**
- * Plays audio from a YouTube video inside a hidden WebView, using YouTube's
- * official IFrame Player API. Nothing is downloaded or re-hosted — playback
- * is a live embed exactly like the <iframe> YouTube gives any site, which
- * keeps this within YouTube's Terms of Service.
+ * Plays audio from a YouTube video by loading YouTube's own embed page
+ * directly in a hidden WebView (https://www.youtube.com/embed/<id>), rather
+ * than wrapping the IFrame Player API in custom HTML with a spoofed origin.
+ * This is the more standard, reliable technique — nothing is downloaded or
+ * re-hosted, matching YouTube's Terms of Service.
  *
- * Two things mobile WebViews commonly need for this to actually make sound:
- *  1. Browsers block autoplay of unmuted media unless it starts muted and is
- *     unmuted right after playback begins — so we do exactly that.
- *  2. If the specific video disallows embedding, YouTube fires an error
- *     event instead of playing — we surface that back to the app instead of
- *     failing silently, via [Listener.onError].
+ * Control (play/pause) is done by posting messages to the embed page's own
+ * `window`, which YouTube's player script listens on — the same mechanism
+ * the official IFrame Player API uses under the hood.
  */
 class YouTubeAudioPlayer(
     private val webView: WebView,
@@ -38,7 +37,7 @@ class YouTubeAudioPlayer(
 
     @SuppressLint("SetJavaScriptEnabled")
     fun initialize(firstVideoId: String) {
-        WebView.setWebContentsDebuggingEnabled(true) // lets you inspect via chrome://inspect
+        WebView.setWebContentsDebuggingEnabled(true) // inspect via chrome://inspect if needed
         webView.settings.javaScriptEnabled = true
         webView.settings.mediaPlaybackRequiresUserGesture = false
         webView.settings.domStorageEnabled = true
@@ -49,89 +48,63 @@ class YouTubeAudioPlayer(
                 return true
             }
         }
-        webView.loadDataWithBaseURL(
-            "https://www.youtube.com",
-            buildHtml(firstVideoId),
-            "text/html",
-            "utf-8",
-            null
-        )
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String?) {
+                injectBridgeScript()
+            }
+        }
+        loadVideo(firstVideoId)
     }
 
     fun play(videoId: String) {
-        mainHandler.post {
-            webView.evaluateJavascript("playVideoById('$videoId')", null)
-        }
+        loadVideo(videoId)
     }
 
     fun resume() {
-        mainHandler.post { webView.evaluateJavascript("resumeVideoNow()", null) }
+        postCommand("playVideo")
     }
 
     fun pause() {
-        mainHandler.post { webView.evaluateJavascript("pauseVideoNow()", null) }
+        postCommand("pauseVideo")
     }
 
-    private fun buildHtml(videoId: String) = """
-        <!DOCTYPE html>
-        <html>
-        <head><style>body{margin:0;background:transparent;}</style></head>
-        <body>
-        <div id="player"></div>
-        <script src="https://www.youtube.com/iframe_api"></script>
-        <script>
-          var player;
-          var unmuteTimer;
-          function onYouTubeIframeAPIReady() {
-            player = new YT.Player('player', {
-              height: '200',
-              width: '200',
-              videoId: '$videoId',
-              playerVars: { 'autoplay': 1, 'playsinline': 1, 'controls': 0, 'mute': 1 },
-              events: {
-                'onReady': onPlayerReady,
-                'onStateChange': onPlayerStateChange,
-                'onError': onPlayerError
-              }
-            });
-          }
-          function onPlayerReady(e) {
-            e.target.mute();
-            e.target.playVideo();
-            // Autoplay is only reliably allowed muted, so start muted then
-            // unmute right after playback actually begins.
-            clearTimeout(unmuteTimer);
-            unmuteTimer = setTimeout(function() {
-              e.target.unMute();
-              e.target.setVolume(100);
-              AndroidBridge.onReady();
-            }, 600);
-          }
-          function onPlayerStateChange(event) {
-            if (event.data == YT.PlayerState.ENDED) { AndroidBridge.onEnded(); }
-            if (event.data == YT.PlayerState.PLAYING) { AndroidBridge.onStateChanged('playing'); }
-            if (event.data == YT.PlayerState.PAUSED) { AndroidBridge.onStateChanged('paused'); }
-          }
-          function onPlayerError(event) {
-            AndroidBridge.onError(event.data);
-          }
-          function playVideoById(id) {
-            if (player && player.loadVideoById) {
-              player.mute();
-              player.loadVideoById(id);
-              clearTimeout(unmuteTimer);
-              unmuteTimer = setTimeout(function() {
-                player.unMute();
-                player.setVolume(100);
-              }, 600);
-            }
-          }
-          function pauseVideoNow() { if (player && player.pauseVideo) { player.pauseVideo(); } }
-          function resumeVideoNow() { if (player && player.playVideo) { player.playVideo(); } }
-        </script>
-        </body>
-        </html>
-    """.trimIndent()
+    private fun loadVideo(videoId: String) {
+        val url = "https://www.youtube.com/embed/$videoId" +
+            "?autoplay=1&mute=1&playsinline=1&enablejsapi=1&controls=0&rel=0&modestbranding=1"
+        mainHandler.post { webView.loadUrl(url) }
+    }
+
+    private fun injectBridgeScript() {
+        val js = """
+            (function() {
+              if (window.__gullyBridgeInstalled) { return; }
+              window.__gullyBridgeInstalled = true;
+              window.addEventListener('message', function(event) {
+                try {
+                  var data = JSON.parse(event.data);
+                  if (data.event === 'onStateChange') {
+                    if (data.info == 0) { AndroidBridge.onEnded(); }
+                    else if (data.info == 1) { AndroidBridge.onStateChanged('playing'); }
+                    else if (data.info == 2) { AndroidBridge.onStateChanged('paused'); }
+                  }
+                  if (data.event === 'onError') { AndroidBridge.onError(data.info); }
+                } catch (e) {}
+              });
+              setTimeout(function() {
+                window.postMessage(JSON.stringify({event:'command', func:'unMute', args:[]}), '*');
+                window.postMessage(JSON.stringify({event:'command', func:'setVolume', args:[100]}), '*');
+                window.postMessage(JSON.stringify({event:'command', func:'playVideo', args:[]}), '*');
+                AndroidBridge.onReady();
+              }, 800);
+            })();
+        """.trimIndent()
+        mainHandler.post { webView.evaluateJavascript(js, null) }
+    }
+
+    private fun postCommand(func: String) {
+        val js = "window.postMessage(JSON.stringify({event:'command', func:'$func', args:[]}), '*');"
+        mainHandler.post { webView.evaluateJavascript(js, null) }
+    }
 
     private inner class AndroidBridge {
         @JavascriptInterface
@@ -155,10 +128,10 @@ class YouTubeAudioPlayer(
         fun onError(code: Int) {
             val message = when (code) {
                 2 -> "Invalid video ID"
-                5 -> "This video can't be played in an embedded player (HTML5 error)"
+                5 -> "This video can't be played in an embedded player"
                 100 -> "Video not found — it may have been removed or made private"
                 101, 150 -> "The video's owner has disabled playback outside YouTube"
-                else -> "Unknown playback error (code $code)"
+                else -> "Playback error (code $code)"
             }
             mainHandler.post { listener.onError(message) }
         }
