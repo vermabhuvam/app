@@ -159,4 +159,8 @@ class MainActivity : AppCompatActivity(), YouTubeAudioPlayer.Listener {
         isPlaying = true
         btnPlayPause.setImageResource(R.drawable.ic_pause)
     }
+
+    override fun onError(message: String) {
+        Toast.makeText(this, "Playback issue: $message", Toast.LENGTH_LONG).show()
+    }
 }
